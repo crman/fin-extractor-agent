@@ -77,22 +77,15 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-#### Option A: Using Azure AI Foundry (Recommended)
+Configure your Azure AI Foundry project:
 ```env
 FOUNDRY_PROJECT_ENDPOINT=https://your-foundry-project.services.ai.azure.com
 FOUNDRY_MODEL=gpt-4o
 ```
+
 Authenticate via Azure CLI:
 ```bash
 az login
-```
-
-#### Option B: Using Direct Azure OpenAI Service
-```env
-AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com/
-AZURE_OPENAI_API_KEY=your-azure-openai-api-key
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
-AZURE_OPENAI_API_VERSION=2024-08-01-preview
 ```
 
 ---

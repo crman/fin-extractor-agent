@@ -1,11 +1,11 @@
-"""Application configuration settings for Azure AI Foundry and Azure OpenAI."""
+"""Application configuration settings for Azure AI Foundry."""
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AppSettings(BaseSettings):
-    """Unified application settings supporting Azure AI Foundry and Azure OpenAI."""
+    """Application settings for Azure AI Foundry."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -26,28 +26,6 @@ class AppSettings(BaseSettings):
         description="Model deployment name in Azure AI Foundry (e.g. gpt-4o, gpt-4o-mini)",
     )
 
-    # --- Azure OpenAI Direct Configuration ---
-    azure_openai_endpoint: str | None = Field(
-        None,
-        alias="AZURE_OPENAI_ENDPOINT",
-        description="Azure OpenAI endpoint URL (e.g. https://<resource>.openai.azure.com/)",
-    )
-    azure_openai_api_key: str | None = Field(
-        None,
-        alias="AZURE_OPENAI_API_KEY",
-        description="Azure OpenAI API key",
-    )
-    azure_openai_deployment_name: str = Field(
-        "gpt-4o",
-        alias="AZURE_OPENAI_DEPLOYMENT_NAME",
-        description="Name of the deployed model in Azure OpenAI",
-    )
-    azure_openai_api_version: str = Field(
-        "2024-08-01-preview",
-        alias="AZURE_OPENAI_API_VERSION",
-        description="Target Azure OpenAI API version",
-    )
-
     # --- General Application Settings ---
     log_level: str = Field(
         "INFO",
@@ -59,15 +37,6 @@ class AppSettings(BaseSettings):
     def is_foundry_configured(self) -> bool:
         """Returns True if Azure AI Foundry project endpoint is configured."""
         return bool(self.foundry_project_endpoint)
-
-    @property
-    def is_azure_openai_configured(self) -> bool:
-        """Returns True if Azure OpenAI direct endpoint is configured."""
-        return bool(self.azure_openai_endpoint)
-
-
-# Alias for backward compatibility
-AzureOpenAISettings = AppSettings
 
 
 def get_settings() -> AppSettings:
