@@ -1,6 +1,5 @@
 """Application configuration settings for Azure AI Foundry and Azure OpenAI."""
 
-from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -16,7 +15,7 @@ class AppSettings(BaseSettings):
     )
 
     # --- Azure AI Foundry Configuration ---
-    foundry_project_endpoint: Optional[str] = Field(
+    foundry_project_endpoint: str | None = Field(
         None,
         alias="FOUNDRY_PROJECT_ENDPOINT",
         description="Azure AI Foundry project endpoint (e.g. https://<project>.services.ai.azure.com)",
@@ -28,12 +27,12 @@ class AppSettings(BaseSettings):
     )
 
     # --- Azure OpenAI Direct Configuration ---
-    azure_openai_endpoint: Optional[str] = Field(
+    azure_openai_endpoint: str | None = Field(
         None,
         alias="AZURE_OPENAI_ENDPOINT",
         description="Azure OpenAI endpoint URL (e.g. https://<resource>.openai.azure.com/)",
     )
-    azure_openai_api_key: Optional[str] = Field(
+    azure_openai_api_key: str | None = Field(
         None,
         alias="AZURE_OPENAI_API_KEY",
         description="Azure OpenAI API key",
