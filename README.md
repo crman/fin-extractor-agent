@@ -6,23 +6,21 @@ AI Agent powered by **Microsoft Agent Framework (MAF)** and **Azure AI Foundry**
 
 ## Architecture Overview
 
-```
-                                      +-------------------------+
-                                      |   Financial PDF Report  |
-                                      +------------+------------+
-                                                   |
-                                                   v
-+-------------------------------+     +------------+------------+
-|  Structured Output Schema     | <---|  Microsoft Agent        |
-|  (Pydantic / JSON Validation) |     |  Framework Agent        |
-+-------------------------------+     |  (Azure AI Foundry)     |
-                                      +------------+------------+
-                                                   ^
-                                                   | Tool Invocation
-                                      +------------+------------+
-                                      |   PDF Extraction Tool   |
-                                      |  (PyMuPDF / pdfplumber) |
-                                      +-------------------------+
+```mermaid
+flowchart TD
+    PDF["📄 Financial PDF Report"] --> MAF["🤖 Microsoft Agent Framework Agent<br><i>(Azure AI Foundry / gpt-4o)</i>"]
+    MAF <-->|Tool Invocation| Tool["🛠️ PDF Extraction Tool<br><i>(PyMuPDF)</i>"]
+    MAF -->|Validated Output| JSON["📋 Structured Output Schema<br><i>(Pydantic / FinancialReport)</i>"]
+
+    classDef default fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a;
+    classDef agent fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d;
+    classDef output fill:#ecfdf5,stroke:#059669,stroke-width:2px,color:#064e3b;
+    classDef input fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#1e3a8a;
+
+    class PDF input;
+    class MAF agent;
+    class Tool default;
+    class JSON output;
 ```
 
 1. **PDF Extractor Tool:** An agent-callable tool that parses financial PDFs, extracting high-fidelity text, metadata, and structured tables.
