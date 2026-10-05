@@ -29,6 +29,8 @@ AI Agent powered by **Microsoft Agent Framework (MAF)** and **Azure AI Foundry**
 2. **Microsoft Agent Framework Core:** Uses Azure AI Foundry (`agent_framework_foundry.FoundryChatClient`) and `DefaultAzureCredential` to orchestrate multi-step reasoning over financial statements, balance sheets, cash flows, and income statements.
 3. **Structured Output Model:** Strictly enforces data types and schemas using Pydantic models ([`FinancialReport`](src/fin_extractor/models/schemas.py)).
 
+> 📘 **Deep Dive:** For the complete technical architecture, Mermaid sequence diagrams, Azure AI Foundry provisioning steps, and MAF code implementation, see [**`docs/ARCHITECTURE.md`**](docs/ARCHITECTURE.md).
+
 ---
 
 ## Project Structure
@@ -40,6 +42,8 @@ fin-extractor-agent/
 ├── pyproject.toml            # Project metadata and package definition
 ├── requirements.txt          # Python dependencies
 ├── README.md                 # Project documentation
+├── docs/
+│   └── ARCHITECTURE.md       # Detailed technical architecture & MAF/Foundry guide
 ├── data/
 │   ├── postman_collection.json # Pre-configured Postman collection for API testing
 │   └── samples/              # Sample financial PDFs for testing and demos
