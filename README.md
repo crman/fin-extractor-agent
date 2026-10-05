@@ -96,12 +96,3 @@ AZURE_OPENAI_API_VERSION=2024-08-01-preview
 ```
 
 ---
-
-## Development Roadmap & Feature Branches
-
-- [x] **`feat/1-project-scaffolding`**: Project layout, dependencies, Azure AI Foundry & OpenAI config, test suite setup.
-- [ ] **`feat/2-pdf-extractor-tool`**: PDF parsing tool (text + tables), chunking, and sample financial PDFs.
-- [ ] **`feat/3-structured-models`**: Pydantic schema for financial metrics, income statements, balance sheets.
-- [ ] **`feat/4-agent-implementation`**: Microsoft Agent Framework integration with Foundry/Azure OpenAI & tool binding.
-- [ ] **`feat/5-cli-and-testing`**: CLI runner, end-to-end integration tests, and output verification.
-
