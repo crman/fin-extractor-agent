@@ -5,7 +5,7 @@ from fin_extractor.agents.extractor_agent import (
     extract_financial_data,
     get_chat_client,
 )
-from fin_extractor.agents.prompts import FINANCIAL_EXTRACTOR_SYSTEM_INSTRUCTIONS
+from fin_extractor.prompts import FINANCIAL_EXTRACTOR_SYSTEM_INSTRUCTIONS
 
 __all__ = [
     "FINANCIAL_EXTRACTOR_SYSTEM_INSTRUCTIONS",

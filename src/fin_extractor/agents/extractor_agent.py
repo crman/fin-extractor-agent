@@ -9,9 +9,9 @@ from typing import Any
 
 from agent_framework import Agent
 
-from fin_extractor.agents.prompts import FINANCIAL_EXTRACTOR_SYSTEM_INSTRUCTIONS
 from fin_extractor.config import AppSettings, get_settings
 from fin_extractor.models import FinancialReport
+from fin_extractor.prompts import FINANCIAL_EXTRACTOR_SYSTEM_INSTRUCTIONS
 from fin_extractor.tools import extract_pdf_tool
 from fin_extractor.utils.logger import setup_logger
 

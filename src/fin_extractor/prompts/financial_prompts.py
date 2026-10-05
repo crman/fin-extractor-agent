@@ -14,7 +14,7 @@ Workflow:
    - Extract key Income Statement metrics: Total Revenue, Net Income, and Diluted EPS.
    - Extract key Balance Sheet metrics: Total Assets, Total Liabilities, and Cash & Equivalents.
    - Check unit scale indicators (e.g., 'In thousands', 'In millions') and preserve reported values.
-   - If a specific field is not present in the document, return null (None). Never fabricate values.
+   - If a specific metric is not present in the document, return null (None). Never fabricate values.
    - Provide a concise 1-2 sentence performance summary in the summary field.
 
 3. Output Generation:
