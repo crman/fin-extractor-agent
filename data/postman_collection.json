@@ -1,0 +1,61 @@
+{
+  "info": {
+    "name": "Financial PDF Extractor API",
+    "description": "Postman Collection for testing the Microsoft Agent Framework Financial PDF Extractor API.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8000/health",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8000",
+          "path": [
+            "health"
+          ]
+        },
+        "description": "Check service health and Azure AI Foundry configuration status."
+      },
+      "response": []
+    },
+    {
+      "name": "Extract Financial Metrics",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "description": "Select the financial statement PDF (e.g. data/samples/TechNova Q3 2026 Financial Results.pdf)"
+            }
+          ]
+        },
+        "url": {
+          "raw": "http://localhost:8000/api/v1/extract",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8000",
+          "path": [
+            "api",
+            "v1",
+            "extract"
+          ]
+        },
+        "description": "Upload a financial PDF document to extract validated structured metrics."
+      },
+      "response": []
+    }
+  ]
+}
