@@ -1,7 +1,7 @@
 """Simple PDF text extraction tool for Microsoft Agent Framework."""
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import pymupdf
 from agent_framework import tool
@@ -11,7 +11,7 @@ from fin_extractor.utils.logger import setup_logger
 logger = setup_logger("pdf_extractor")
 
 
-def read_pdf_text(file_path: str, pages: Optional[list[int]] = None) -> str:
+def read_pdf_text(file_path: str, pages: list[int] | None = None) -> str:
     """Reads and extracts text from a PDF file page by page using PyMuPDF.
 
     Args:
@@ -62,7 +62,7 @@ def read_pdf_text(file_path: str, pages: Optional[list[int]] = None) -> str:
 def extract_pdf_tool(
     file_path: Annotated[str, "The file path to the financial PDF document."],
     pages: Annotated[
-        Optional[list[int]],
+        list[int] | None,
         "Optional list of 1-based page numbers to extract. Defaults to all pages.",
     ] = None,
 ) -> str:
