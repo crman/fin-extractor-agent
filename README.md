@@ -8,9 +8,9 @@ AI Agent powered by **Microsoft Agent Framework (MAF)** and **Azure AI Foundry**
 
 ```mermaid
 flowchart TD
-    PDF["📄 Financial PDF Report"] --> MAF["🤖 Microsoft Agent Framework Agent<br><i>(Azure AI Foundry / gpt-4o)</i>"]
-    MAF <-->|Tool Invocation| Tool["🛠️ PDF Extraction Tool<br><i>(PyMuPDF)</i>"]
-    MAF -->|Validated Output| JSON["📋 Structured Output Schema<br><i>(Pydantic / FinancialReport)</i>"]
+    PDF["Financial PDF Report"] --> MAF["Microsoft Agent Framework Agent<br><i>(Azure AI Foundry / gpt-4o)</i>"]
+    MAF <-->|Tool Invocation| Tool["PDF Extraction Tool<br><i>(PyMuPDF)</i>"]
+    MAF -->|Validated Output| JSON["Structured Output Schema<br><i>(Pydantic / FinancialReport)</i>"]
 
     classDef default fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a;
     classDef agent fill:#f0fdf4,stroke:#16a34a,stroke-width:2px,color:#14532d;
@@ -27,7 +27,7 @@ flowchart TD
 2. **Microsoft Agent Framework Core:** Uses Azure AI Foundry (`agent_framework_foundry.FoundryChatClient`) and `DefaultAzureCredential` to orchestrate multi-step reasoning over financial statements, balance sheets, cash flows, and income statements.
 3. **Structured Output Model:** Strictly enforces data types and schemas using Pydantic models ([`FinancialReport`](src/fin_extractor/models/schemas.py)).
 
-> 📘 **Deep Dive:** For the complete technical architecture, Mermaid sequence diagrams, Azure AI Foundry provisioning steps, and MAF code implementation, see [**`docs/ARCHITECTURE.md`**](docs/ARCHITECTURE.md).
+> **Deep Dive:** For the complete technical architecture, Mermaid sequence diagrams, Azure AI Foundry provisioning steps, and MAF code implementation, see [**`docs/ARCHITECTURE.md`**](docs/ARCHITECTURE.md).
 
 ---
 
@@ -52,17 +52,19 @@ fin-extractor-agent/
 │       ├── config.py         # AppSettings for Azure AI Foundry & App Insights
 │       ├── agents/           # Microsoft Agent Framework agent definitions
 │       ├── api/              # FastAPI application and REST endpoints
-│       ├── models/           # Pydantic structured output models & schemas
-│       ├── prompts/          # Domain-tailored system prompts and instructions
+│       ├── models/           # Pydantic structured output models & schemas │       ├── prompts/          # Domain-tailored system prompts and instructions
+│       ├── security/         # Input safety guardrails & Prompt Shield screening
 │       ├── tools/            # PDF parsing & extraction tools (PyMuPDF)
 │       └── utils/            # Logging, OpenTelemetry tracing, and utilities
 └── tests/
     ├── __init__.py
+    ├── conftest.py           # Pytest fixtures & telemetry isolation
     ├── test_agent.py         # Agent orchestrator unit tests
     ├── test_api.py           # FastAPI endpoint unit tests
     ├── test_config.py        # Configuration unit tests
     ├── test_models.py        # Pydantic schema validation tests
     ├── test_pdf_extractor.py # PDF parsing tool unit tests
+    ├── test_prompt_shield.py # Prompt Shield guardrail unit tests
     └── test_telemetry.py     # OpenTelemetry and tracing unit tests
 ```
 
@@ -96,6 +98,10 @@ LOG_LEVEL=INFO
 # Observability & Tracing Controls:
 ENABLE_GENAI_TRACING=true
 CAPTURE_MESSAGE_CONTENT=true
+
+# Guardrails & Content Safety (Prompt Shields):
+ENABLE_PROMPT_SHIELD=true
+# CONTENT_SAFETY_ENDPOINT=https://<your-hub-resource>.cognitiveservices.azure.com
 
 # Optional override: Auto-discovered from FOUNDRY_PROJECT_ENDPOINT if omitted
 # APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=...;IngestionEndpoint=...
@@ -169,6 +175,37 @@ All API requests, agent workflows, tool calls, and LLM completions are instrumen
 | `ENABLE_GENAI_TRACING` | `true` | Toggle OpenTelemetry distributed tracing on/off |
 | `CAPTURE_MESSAGE_CONTENT` | `true` | When `true`, logs full prompt text and model output. Set `false` to redact content for production privacy/PII |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | *Auto-discovered* | Optional override for target Application Insights resource |
+
+---
+
+## Input Safety & Prompt Shield Guardrails
+
+To defend against **indirect prompt injection** attacks embedded inside uploaded corporate PDFs (e.g. malicious instruction overrides hidden in footnotes or white-font text), the service implements **Defense-in-Depth** guardrails via **Azure AI Content Safety**:
+
+1. **Pre-Model Screening:** Extracted PDF text is evaluated using the Prompt Shield API before passing to `gpt-4o`.
+2. **Attack Attribution:** If an attack is detected, execution aborts immediately with the offending page number, protecting your system prompt and avoiding model inference costs.
+3. **Guardrail Tracing:** Every scan creates a `guardrail_prompt_shield` span in the Azure AI Foundry Tracing waterfall.
+
+### Safety Configuration Options
+
+| Variable | Default | Description |
+|---|---|---|
+| `ENABLE_PROMPT_SHIELD` | `true` | Toggle indirect prompt injection detection on/off |
+| `CONTENT_SAFETY_ENDPOINT` | *Auto-derived* | Azure AI Content Safety / Cognitive Services endpoint (auto-derived from `FOUNDRY_PROJECT_ENDPOINT` if omitted) |
+| `CONTENT_SAFETY_API_VERSION` | `2024-09-01` | Azure AI Content Safety API version for `shieldPrompt` |
+
+### Security Violation Error Format (HTTP 422)
+
+```json
+{
+  "detail": {
+    "error": "SecurityViolation",
+    "attack_type": "indirect_document_injection",
+    "page": 2,
+    "message": "Potential prompt injection attack detected on page 2 of the uploaded document."
+  }
+}
+```
 
 ---
 

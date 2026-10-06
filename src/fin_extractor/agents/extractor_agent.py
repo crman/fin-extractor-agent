@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from agent_framework import Agent
+from agent_framework_foundry import FoundryChatClient
+from azure.identity import DefaultAzureCredential
 
 from fin_extractor.config import AppSettings, get_settings
 from fin_extractor.models import FinancialReport
@@ -38,8 +40,6 @@ def get_chat_client(settings: AppSettings | None = None) -> Any:
         cfg.foundry_project_endpoint,
         cfg.foundry_model,
     )
-    from agent_framework_foundry import FoundryChatClient
-    from azure.identity import DefaultAzureCredential
 
     return FoundryChatClient(
         project_endpoint=cfg.foundry_project_endpoint,

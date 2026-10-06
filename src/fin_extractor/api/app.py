@@ -10,6 +10,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, status
 from fin_extractor.agents import extract_financial_data
 from fin_extractor.config import get_settings
 from fin_extractor.models import FinancialReport
+from fin_extractor.security import DocumentInjectionError, PromptShieldError
 from fin_extractor.utils import configure_tracing, is_tracing_active, setup_logger
 
 logger = setup_logger("api")
@@ -47,6 +48,7 @@ async def health_check() -> dict[str, Any]:
         "foundry_configured": settings.is_foundry_configured,
         "foundry_model": settings.foundry_model,
         "tracing_configured": is_tracing_active() or settings.is_tracing_configured,
+        "prompt_shield_enabled": settings.is_prompt_shield_configured,
     }
 
 
@@ -88,6 +90,27 @@ async def extract_financial_metrics(
     try:
         report = await extract_financial_data(temp_path)
         return report
+    except DocumentInjectionError as exc:
+        logger.warning("Indirect prompt injection detected in uploaded PDF: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "error": "SecurityViolation",
+                "attack_type": exc.attack_type,
+                "page": exc.page_number,
+                "message": exc.message,
+            },
+        )
+    except PromptShieldError as exc:
+        logger.warning("Prompt safety violation detected: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "error": "SecurityViolation",
+                "attack_type": exc.attack_type,
+                "message": exc.message,
+            },
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:

@@ -20,6 +20,7 @@ def test_health_endpoint():
     assert "foundry_configured" in data
     assert "foundry_model" in data
     assert "tracing_configured" in data
+    assert "prompt_shield_enabled" in data
 
 
 def test_extract_invalid_file_extension():
@@ -77,3 +78,28 @@ def test_extract_endpoint_success(mock_extract):
     assert data["total_liabilities"] == 30000.0
     assert data["cash_and_equivalents"] == 15000.0
     assert "15% YoY revenue growth" in data["summary"]
+
+
+@patch("fin_extractor.api.app.extract_financial_data", new_callable=AsyncMock)
+def test_extract_endpoint_prompt_injection_blocked(mock_extract):
+    """Verifies that detected prompt injection returns 422 Unprocessable Entity with security details."""
+    from fin_extractor.security import DocumentInjectionError
+
+    mock_extract.side_effect = DocumentInjectionError(
+        page_number=2,
+        message="Potential prompt injection attack detected on page 2 of the uploaded document.",
+    )
+
+    fake_pdf_bytes = b"%PDF-1.4 simulated pdf bytes for test"
+    response = client.post(
+        "/api/v1/extract",
+        files={"file": ("malicious_report.pdf", fake_pdf_bytes, "application/pdf")},
+    )
+
+    assert response.status_code == 422
+    data = response.json()
+    assert "detail" in data
+    assert data["detail"]["error"] == "SecurityViolation"
+    assert data["detail"]["attack_type"] == "indirect_document_injection"
+    assert data["detail"]["page"] == 2
+    assert "prompt injection attack detected" in data["detail"]["message"].lower()
