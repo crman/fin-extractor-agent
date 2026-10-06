@@ -49,20 +49,21 @@ fin-extractor-agent/
 │   └── fin_extractor/
 │       ├── __init__.py
 │       ├── main.py           # Application entrypoint & Uvicorn launcher
-│       ├── config.py         # AppSettings for Azure AI Foundry
+│       ├── config.py         # AppSettings for Azure AI Foundry & App Insights
 │       ├── agents/           # Microsoft Agent Framework agent definitions
 │       ├── api/              # FastAPI application and REST endpoints
 │       ├── models/           # Pydantic structured output models & schemas
 │       ├── prompts/          # Domain-tailored system prompts and instructions
 │       ├── tools/            # PDF parsing & extraction tools (PyMuPDF)
-│       └── utils/            # Logging, formatting, and helper utilities
+│       └── utils/            # Logging, OpenTelemetry tracing, and utilities
 └── tests/
     ├── __init__.py
     ├── test_agent.py         # Agent orchestrator unit tests
     ├── test_api.py           # FastAPI endpoint unit tests
     ├── test_config.py        # Configuration unit tests
     ├── test_models.py        # Pydantic schema validation tests
-    └── test_pdf_extractor.py # PDF parsing tool unit tests
+    ├── test_pdf_extractor.py # PDF parsing tool unit tests
+    └── test_telemetry.py     # OpenTelemetry and tracing unit tests
 ```
 
 ---
@@ -86,11 +87,18 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-Configure your Azure AI Foundry project:
+Configure your Azure AI Foundry project and Application Insights:
 ```env
-FOUNDRY_PROJECT_ENDPOINT=https://your-foundry-project.services.ai.azure.com
+FOUNDRY_PROJECT_ENDPOINT=https://<your-hub-resource>.services.ai.azure.com/api/projects/<your-project-name>
 FOUNDRY_MODEL=gpt-4o
 LOG_LEVEL=INFO
+
+# Observability & Tracing Controls:
+ENABLE_GENAI_TRACING=true
+CAPTURE_MESSAGE_CONTENT=true
+
+# Optional override: Auto-discovered from FOUNDRY_PROJECT_ENDPOINT if omitted
+# APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=...;IngestionEndpoint=...
 ```
 
 Authenticate via Azure CLI:
@@ -139,6 +147,28 @@ curl -X POST "http://localhost:8000/api/v1/extract" \
   -H "Content-Type: multipart/form-data" \
   -F "file=@data/samples/TechNova Q3 2026 Financial Results.pdf"
 ```
+
+---
+
+## Observability & Foundry Tracing
+
+All API requests, agent workflows, tool calls, and LLM completions are instrumented via **OpenTelemetry** and streamed directly to **Azure AI Foundry Tracing**:
+
+1. Open your Foundry project: **`<your-project-name>`**.
+2. In the left sidebar, navigate to **Observe and optimize** $\rightarrow$ **Tracing**.
+3. View the live waterfall traces:
+   - Root HTTP span: `POST /api/v1/extract`
+   - Agent orchestrator: `agent_extract_financial_data`
+   - Tool execution: `extract_pdf_pages` (page numbers, character count)
+   - Azure OpenAI call: `chat.completions` (model latency, prompt & completion tokens, full input/output payload)
+
+### Tracing Configuration Options
+
+| Variable | Default | Description |
+|---|---|---|
+| `ENABLE_GENAI_TRACING` | `true` | Toggle OpenTelemetry distributed tracing on/off |
+| `CAPTURE_MESSAGE_CONTENT` | `true` | When `true`, logs full prompt text and model output. Set `false` to redact content for production privacy/PII |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | *Auto-discovered* | Optional override for target Application Insights resource |
 
 ---
 

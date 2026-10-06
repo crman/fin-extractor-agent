@@ -155,24 +155,24 @@ This section explains how the Azure AI Foundry cloud environment was provisioned
 
 1. **Create an Azure AI Hub & Project**:
    - In the [Azure AI Foundry Portal](https://ai.azure.com), create a new **Hub** (or Azure AI Services resource):
-     - **Resource Name:** `fin-extractor-eastus2-resource`
-     - **Region:** `East US 2` (selected for `gpt-4o` quota and low latency)
+     - **Resource Name:** `<your-hub-resource-name>` (e.g. `fin-extractor-hub`)
+     - **Region:** Choose a supported region with `gpt-4o` availability (e.g. `East US 2`, `Sweden Central`)
    - Create a child **Project** within the Hub:
-     - **Project Name:** `fin-extractor-eastus2`
+     - **Project Name:** `<your-project-name>` (e.g. `fin-extractor-project`)
 
 2. **Deploy the Foundation Model (`gpt-4o`)**:
-   - Inside the `fin-extractor-eastus2` project, navigate to **Models + endpoints** -> **Deploy model** -> **Deploy base model**.
+   - Inside your project, navigate to **Models + endpoints** -> **Deploy model** -> **Deploy base model**.
    - Select **`gpt-4o`** with Standard deployment.
    - Set the **Deployment Name** to `gpt-4o`.
 
 3. **Obtain the Project Connection Endpoint**:
    - In Project Settings -> **Overview**, copy the **Project Endpoint**:
      ```text
-     https://fin-extractor-eastus2-resource.services.ai.azure.com/api/projects/fin-extractor-eastus2
+     https://<your-hub-resource-name>.services.ai.azure.com/api/projects/<your-project-name>
      ```
    - Configure this in your local `.env` file:
      ```env
-     FOUNDRY_PROJECT_ENDPOINT=https://fin-extractor-eastus2-resource.services.ai.azure.com/api/projects/fin-extractor-eastus2
+     FOUNDRY_PROJECT_ENDPOINT=https://<your-hub-resource-name>.services.ai.azure.com/api/projects/<your-project-name>
      FOUNDRY_MODEL=gpt-4o
      LOG_LEVEL=INFO
      ```
@@ -193,7 +193,7 @@ Instead of managing static API keys that risk accidental leaks and expiration, t
 az login
 
 # 2. Select your active subscription
-az account set --subscription "Azure subscription 1"
+az account set --subscription "<your-subscription-id-or-name>"
 ```
 
 When [`FoundryChatClient`](src/fin_extractor/agents/extractor_agent.py) initializes, `DefaultAzureCredential` automatically extracts and refreshes the Bearer token from the local Azure CLI credential cache. In production (e.g. Azure Container Apps or AKS), the exact same code seamlessly uses Managed Identity without any modifications.
@@ -267,7 +267,101 @@ if isinstance(response.value, FinancialReport):
 
 ---
 
-## 6. Security & Authentication Architecture
+## 6. Observability & Tracing Architecture (Azure AI Foundry)
+
+The service implements end-to-end distributed tracing using **OpenTelemetry (OTel)** and **Azure Monitor**, feeding directly into the **Azure AI Foundry Tracing** explorer (`<your-project-name> -> Tracing`).
+
+### 6.1. Telemetry Pipeline
+
+```mermaid
+flowchart TD
+    Req["HTTP POST /api/v1/extract"] --> FSpan["FastAPI Span (HTTP Status, Latency)"]
+    FSpan --> ASpan["Agent Span: agent_extract_financial_data (Document Metadata, Agent Name)"]
+    ASpan --> TSpan["Tool Span: extract_pdf_pages (PyMuPDF Page Parsing & Metrics)"]
+    ASpan --> LSpan["GenAI Model Span: chat.completions (gpt-4o, Prompt/Completion Tokens, Costs)"]
+    
+    FSpan -.-> Exporter["Azure Monitor OpenTelemetry Distro (azure-monitor-opentelemetry)"]
+    ASpan -.-> Exporter
+    TSpan -.-> Exporter
+    LSpan -.-> Exporter
+    
+    Exporter ==> AppInsights["Azure Application Insights (Live Metrics & Spans Ingestion)"]
+    AppInsights ==> FoundryUI["Azure AI Foundry Tracing Explorer (Waterfall Spans, Run Details, Latency)"]
+
+    classDef span fill:#0078D4,stroke:#005A9E,color:#ffffff,stroke-width:1px;
+    classDef dest fill:#107C41,stroke:#0B5A2F,color:#ffffff,stroke-width:1px;
+    class FSpan,ASpan,TSpan,LSpan span;
+    class AppInsights,FoundryUI dest;
+```
+
+### 6.2. How It Works
+1. **Zero-Configuration Dynamic Discovery:** If `APPLICATIONINSIGHTS_CONNECTION_STRING` is not explicitly set in `.env`, the telemetry module queries `AIProjectClient.telemetry.get_application_insights_connection_string()` from the configured Foundry Project endpoint.
+2. **GenAI Semantic Conventions:** When `ENABLE_GENAI_TRACING=true` and `CAPTURE_MESSAGE_CONTENT=true`, the `OpenAIInstrumentor`, `AIProjectInstrumentor`, and MAF sensitive telemetry capture model parameters, prompt tokens, completion tokens, latency, and full input/output messages.
+3. **Trace Waterfall:** Each extraction creates a nested hierarchy:
+   - Root span: HTTP request (`POST /api/v1/extract`)
+   - Child span: `agent_extract_financial_data`
+   - Child span: `extract_pdf_pages` (page counts and extracted characters)
+   - Child span: `chat.completions` (Azure OpenAI model latency and token counts)
+
+### 6.3. Dual-Layer Instrumentation Strategy (Why Two Instrumentors?)
+
+The telemetry architecture initializes two complementary OpenTelemetry instrumentors:
+
+```mermaid
+flowchart LR
+    subgraph App["Application & MAF Runtime"]
+        MAF["MAF Agent & FoundryChatClient"]
+    end
+
+    subgraph Layer1["1. Project & Platform Layer"]
+        AIProj["AIProjectInstrumentor<br/>(azure.ai.projects.telemetry)"]
+    end
+
+    subgraph Layer2["2. Model Inference Layer"]
+        OAI["OpenAIInstrumentor<br/>(opentelemetry.instrumentation.openai_v2)"]
+    end
+
+    subgraph Portal["Azure AI Foundry Portal"]
+        TracingUI["Tracing & Run Details<br/>(Projects, Tokens, Latency, Waterfall)"]
+    end
+
+    MAF --> AIProj
+    MAF --> OAI
+    AIProj --> TracingUI
+    OAI --> TracingUI
+```
+
+| Instrumentor | Source Package | Primary Role & Why It Is Needed |
+|---|---|---|
+| **`AIProjectInstrumentor`** | `azure.ai.projects.telemetry` | **Foundry Project & Platform Scope:** Instruments the Azure AI Foundry Projects SDK. It injects project-level metadata (`project_id`, `hub_endpoint`, workspace context) and agent definitions into OpenTelemetry spans so the **Azure AI Foundry Studio portal** can map and filter traces within the project's **Observe and optimize $\rightarrow$ Tracing** explorer. Without this, spans in Application Insights would lack Foundry project correlation. |
+| **`OpenAIInstrumentor`** | `opentelemetry.instrumentation.openai_v2` | **GenAI Semantic Conventions & Inference:** Instruments the low-level OpenAI / Azure OpenAI client (`chat.completions`) executed by MAF. It extracts standardized OTel GenAI attributes including `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, finish reasons, latency, and request/response parameters. Without this, individual LLM inference calls would not emit standard token economics or fine-grained model metrics. |
+
+#### Why Both Are Required
+1. **Separation of Concerns:** `AIProjectInstrumentor` understands **where** the run took place (Foundry Project and Agent hierarchy), while `OpenAIInstrumentor` understands **what** the LLM executed (prompts, completions, tokens, and model latency).
+2. **End-to-End Waterfall Fidelity:** Running both guarantees that the trace captures both the high-level Foundry agent lifecycle and the low-level token consumption within a unified waterfall view.
+
+---
+
+### 6.4. Privacy, Sensitive Data Controls & Configuration Toggles
+
+By default, Microsoft Agent Framework (MAF) implements a strict privacy safeguard (`SENSITIVE_DATA_ENABLED`): it intentionally redacts raw chat messages, prompt bodies, and tool outputs from OpenTelemetry spans to prevent accidental data leaks or compliance violations in production.
+
+The service provides fine-grained, environment-based configuration to control this behavior:
+
+| Environment Variable | Default | Purpose & Behavior |
+|---|---|---|
+| `ENABLE_GENAI_TRACING` | `true` | **Global Tracing Toggle:** When `false`, the OpenTelemetry pipeline and Azure Monitor exporter are completely disabled. Zero spans or network calls are sent to Application Insights. |
+| `CAPTURE_MESSAGE_CONTENT` | `true` | **Privacy & PII Control:** When `true`, enables MAF's `enable_sensitive_telemetry()` and sets `ENABLE_SENSITIVE_DATA=true` to capture full prompt text, document text, and JSON outputs for development and debugging. When `false`, all content is redacted, exporting only latency, token metrics, model names, and status codes. |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | *Auto-discovered* | **Custom Ingestion Address (Optional):** When omitted, the app dynamically discovers the Application Insights instance attached to `FOUNDRY_PROJECT_ENDPOINT`. Set explicitly only if routing telemetry to a separate workspace. |
+
+When `CAPTURE_MESSAGE_CONTENT=false` is selected for enterprise production deployments:
+- The agent span (`agent_extract_financial_data`) suppresses `input.value` and `output.value`.
+- The tool span (`extract_pdf_pages`) suppresses extracted text while retaining page count and execution timing.
+- LLM completion spans emit `gen_ai.usage.prompt_tokens` and `gen_ai.usage.output_tokens` without exposing proprietary document text.
+
+---
+
+## 7. Security & Authentication Architecture
 
 1. **Passwordless Cloud Authentication:**
    - No Azure API keys or client secrets are stored in source code or `.env`.
@@ -280,7 +374,7 @@ if isinstance(response.value, FinancialReport):
 
 ---
 
-## 7. Testing Strategy
+## 8. Testing Strategy
 
 The repository maintains an automated unit test suite with 100% decoupling from live Azure resources using mock abstractions:
 
@@ -290,11 +384,12 @@ The repository maintains an automated unit test suite with 100% decoupling from 
 | `test_agent.py` | MAF Agent creation, client configuration, extraction pipeline | Async mocks, mocked chat client responses |
 | `test_pdf_extractor.py` | PyMuPDF tool execution, page indexing, error conditions | Temporary synthetic PDF generation |
 | `test_models.py` | Pydantic schema constraints, JSON serialization, null safety | Pydantic model validation tests |
-| `test_config.py` | Environment variable overrides, defaults, properties | `unittest.mock.patch.dict(os.environ)` |
+| `test_config.py` | Environment variable overrides, defaults, properties | `pytest.MonkeyPatch` |
+| `test_telemetry.py` | OpenTelemetry setup, connection string discovery, fallback safety | `unittest.mock.patch`, mock instrumentors |
 
 ---
 
-## 8. Technology Stack Summary
+## 9. Technology Stack Summary
 
 | Layer | Technology | Purpose |
 |---|---|---|
@@ -305,5 +400,7 @@ The repository maintains an automated unit test suite with 100% decoupling from 
 | **Web Service** | FastAPI + Uvicorn | High-performance asynchronous REST API |
 | **PDF Extraction** | PyMuPDF (`pymupdf`) | Fast, accurate text and page layout extraction |
 | **Validation** | Pydantic v2 | Schema definition and structured output enforcement |
+| **Observability** | OpenTelemetry + Azure Monitor | Distributed tracing and Foundry Tracing integration |
 | **Identity** | Azure Identity (`azure-identity`) | Entra ID / Azure CLI passwordless token provider |
-| **Testing** | Pytest, Pytest-Asyncio | Automated asynchronous test runner |
+| **Testing** | Pytest, Pytest-Asyncio | Automated asynchronous test runner (24 tests) |
+
