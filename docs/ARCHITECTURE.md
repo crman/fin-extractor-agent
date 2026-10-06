@@ -303,7 +303,46 @@ flowchart TD
    - Child span: `extract_pdf_pages` (page counts and extracted characters)
    - Child span: `chat.completions` (Azure OpenAI model latency and token counts)
 
-### 6.3. Privacy, Sensitive Data Controls & Configuration Toggles
+### 6.3. Dual-Layer Instrumentation Strategy (Why Two Instrumentors?)
+
+The telemetry architecture initializes two complementary OpenTelemetry instrumentors:
+
+```mermaid
+flowchart LR
+    subgraph App["Application & MAF Runtime"]
+        MAF["MAF Agent & FoundryChatClient"]
+    end
+
+    subgraph Layer1["1. Project & Platform Layer"]
+        AIProj["AIProjectInstrumentor<br/>(azure.ai.projects.telemetry)"]
+    end
+
+    subgraph Layer2["2. Model Inference Layer"]
+        OAI["OpenAIInstrumentor<br/>(opentelemetry.instrumentation.openai_v2)"]
+    end
+
+    subgraph Portal["Azure AI Foundry Portal"]
+        TracingUI["Tracing & Run Details<br/>(Projects, Tokens, Latency, Waterfall)"]
+    end
+
+    MAF --> AIProj
+    MAF --> OAI
+    AIProj --> TracingUI
+    OAI --> TracingUI
+```
+
+| Instrumentor | Source Package | Primary Role & Why It Is Needed |
+|---|---|---|
+| **`AIProjectInstrumentor`** | `azure.ai.projects.telemetry` | **Foundry Project & Platform Scope:** Instruments the Azure AI Foundry Projects SDK. It injects project-level metadata (`project_id`, `hub_endpoint`, workspace context) and agent definitions into OpenTelemetry spans so the **Azure AI Foundry Studio portal** can map and filter traces within the project's **Observe and optimize $\rightarrow$ Tracing** explorer. Without this, spans in Application Insights would lack Foundry project correlation. |
+| **`OpenAIInstrumentor`** | `opentelemetry.instrumentation.openai_v2` | **GenAI Semantic Conventions & Inference:** Instruments the low-level OpenAI / Azure OpenAI client (`chat.completions`) executed by MAF. It extracts standardized OTel GenAI attributes including `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, finish reasons, latency, and request/response parameters. Without this, individual LLM inference calls would not emit standard token economics or fine-grained model metrics. |
+
+#### Why Both Are Required
+1. **Separation of Concerns:** `AIProjectInstrumentor` understands **where** the run took place (Foundry Project and Agent hierarchy), while `OpenAIInstrumentor` understands **what** the LLM executed (prompts, completions, tokens, and model latency).
+2. **End-to-End Waterfall Fidelity:** Running both guarantees that the trace captures both the high-level Foundry agent lifecycle and the low-level token consumption within a unified waterfall view.
+
+---
+
+### 6.4. Privacy, Sensitive Data Controls & Configuration Toggles
 
 By default, Microsoft Agent Framework (MAF) implements a strict privacy safeguard (`SENSITIVE_DATA_ENABLED`): it intentionally redacts raw chat messages, prompt bodies, and tool outputs from OpenTelemetry spans to prevent accidental data leaks or compliance violations in production.
 
