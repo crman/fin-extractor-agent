@@ -6,9 +6,11 @@ from typing import Annotated
 import pymupdf
 from agent_framework import tool
 
-from fin_extractor.utils.logger import setup_logger
+from fin_extractor.config import get_settings
+from fin_extractor.utils import get_tracer, setup_logger
 
 logger = setup_logger("pdf_extractor")
+tracer = get_tracer("pdf_extractor")
 
 
 def read_pdf_text(file_path: str, pages: list[int] | None = None) -> str:
@@ -36,20 +38,33 @@ def read_pdf_text(file_path: str, pages: list[int] | None = None) -> str:
 
     logger.info("Reading %d page(s) from %s", len(target_pages), path.name)
 
-    output_parts = [
-        f"# Document: {path.name}",
-        f"- Total Pages: {total_pages}",
-        f"- Extracted Pages: {target_pages}",
-        "---",
-    ]
+    cfg = get_settings()
+    with tracer.start_as_current_span("extract_pdf_pages") as span:
+        span.set_attribute("tool.name", "extract_pdf_text")
+        span.set_attribute("document.file_name", path.name)
+        span.set_attribute("document.total_pages", total_pages)
+        span.set_attribute("document.extracted_pages_count", len(target_pages))
+        if cfg.capture_message_content:
+            span.set_attribute("input.value", f"File: {path.name} (pages: {target_pages})")
 
-    for page_num in target_pages:
-        page = doc[page_num - 1]
-        page_text = page.get_text("text").strip()
-        output_parts.append(f"--- PAGE {page_num} ---\n{page_text}")
+        output_parts = [
+            f"# Document: {path.name}",
+            f"- Total Pages: {total_pages}",
+            f"- Extracted Pages: {target_pages}",
+            "---",
+        ]
 
-    doc.close()
-    return "\n\n".join(output_parts)
+        for page_num in target_pages:
+            page = doc[page_num - 1]
+            page_text = page.get_text("text").strip()
+            output_parts.append(f"--- PAGE {page_num} ---\n{page_text}")
+
+        doc.close()
+        result = "\n\n".join(output_parts)
+        span.set_attribute("output.character_count", len(result))
+        if cfg.capture_message_content:
+            span.set_attribute("output.value", f"Extracted {len(target_pages)} pages ({len(result)} characters)")
+        return result
 
 
 # ==============================================================================

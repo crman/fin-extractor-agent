@@ -1,6 +1,7 @@
 """Unit tests for the simple PDF extraction tool."""
 
 import pytest
+
 from fin_extractor.tools import extract_pdf_tool, read_pdf_text
 
 SAMPLE_PDF_PATH = "data/samples/TechNova Q3 2026 Financial Results.pdf"

@@ -19,6 +19,7 @@ def test_health_endpoint():
     assert data["service"] == "fin-extractor-agent"
     assert "foundry_configured" in data
     assert "foundry_model" in data
+    assert "tracing_configured" in data
 
 
 def test_extract_invalid_file_extension():

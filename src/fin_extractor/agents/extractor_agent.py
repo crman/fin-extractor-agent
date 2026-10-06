@@ -13,9 +13,10 @@ from fin_extractor.config import AppSettings, get_settings
 from fin_extractor.models import FinancialReport
 from fin_extractor.prompts import FINANCIAL_EXTRACTOR_SYSTEM_INSTRUCTIONS
 from fin_extractor.tools import extract_pdf_tool
-from fin_extractor.utils.logger import setup_logger
+from fin_extractor.utils import get_tracer, setup_logger
 
 logger = setup_logger("extractor_agent")
+tracer = get_tracer("extractor_agent")
 
 
 def get_chat_client(settings: AppSettings | None = None) -> Any:
@@ -105,21 +106,39 @@ async def extract_financial_data(
     if not resolved_path.is_file():
         raise FileNotFoundError(f"Financial PDF file not found: {resolved_path}")
 
-    active_agent = agent if agent is not None else create_financial_agent()
-    internal_prompt = f"Extract the predefined financial metrics from the document at: {resolved_path}"
+    with tracer.start_as_current_span("agent_extract_financial_data") as span:
+        span.set_attribute("gen_ai.system", "azure_ai_foundry")
+        span.set_attribute("gen_ai.agent.name", "FinancialExtractorAgent")
+        span.set_attribute("document.name", resolved_path.name)
+        span.set_attribute("document.size_bytes", resolved_path.stat().st_size)
 
-    logger.info("Starting automated financial extraction for: %s", resolved_path.name)
-    response = await active_agent.run(internal_prompt)
+        cfg = get_settings()
+        active_agent = agent if agent is not None else create_financial_agent(settings=cfg)
+        internal_prompt = f"Extract the predefined financial metrics from the document at: {resolved_path}"
+        if cfg.capture_message_content:
+            span.set_attribute("input.value", internal_prompt)
 
-    # MAF automatically parses structured output into response.value
-    if response.value is not None:
-        if isinstance(response.value, FinancialReport):
-            return response.value
-        if isinstance(response.value, dict):
-            return FinancialReport.model_validate(response.value)
+        logger.info("Starting automated financial extraction for: %s", resolved_path.name)
+        response = await active_agent.run(internal_prompt)
 
-    # Fallback parsing from response text if value was not pre-populated
-    if response.text:
-        return FinancialReport.model_validate_json(response.text)
+        # MAF automatically parses structured output into response.value
+        report: FinancialReport | None = None
+        if response.value is not None:
+            if isinstance(response.value, FinancialReport):
+                report = response.value
+            elif isinstance(response.value, dict):
+                report = FinancialReport.model_validate(response.value)
 
-    raise ValueError(f"Agent did not return valid structured output for {resolved_path.name}")
+        # Fallback parsing from response text if value was not pre-populated
+        if report is None and response.text:
+            report = FinancialReport.model_validate_json(response.text)
+
+        if report is not None:
+            if cfg.capture_message_content:
+                span.set_attribute("output.value", report.model_dump_json())
+            span.set_attribute("financial_report.company_name", report.company_name)
+            span.set_attribute("financial_report.reporting_period", report.reporting_period)
+            span.set_attribute("financial_report.currency", report.currency)
+            return report
+
+        raise ValueError(f"Agent did not return valid structured output for {resolved_path.name}")

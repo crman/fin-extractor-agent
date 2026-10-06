@@ -1,6 +1,7 @@
 """FastAPI application for the Financial PDF Extractor Agent."""
 
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -9,9 +10,20 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, status
 from fin_extractor.agents import extract_financial_data
 from fin_extractor.config import get_settings
 from fin_extractor.models import FinancialReport
-from fin_extractor.utils.logger import setup_logger
+from fin_extractor.utils import configure_tracing, is_tracing_active, setup_logger
 
 logger = setup_logger("api")
+
+# Initialize OpenTelemetry and Azure AI Foundry tracing
+configure_tracing()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan context manager."""
+    configure_tracing()
+    yield
+
 
 app = FastAPI(
     title="Financial PDF Extractor API",
@@ -20,6 +32,7 @@ app = FastAPI(
         "Enterprise API powered by Microsoft Agent Framework and Azure AI Foundry. "
         "Upload a financial PDF document to extract validated structured financial metrics."
     ),
+    lifespan=lifespan,
 )
 
 
@@ -33,6 +46,7 @@ async def health_check() -> dict[str, Any]:
         "version": "0.1.0",
         "foundry_configured": settings.is_foundry_configured,
         "foundry_model": settings.foundry_model,
+        "tracing_configured": is_tracing_active() or settings.is_tracing_configured,
     }
 
 
@@ -79,7 +93,7 @@ async def extract_financial_metrics(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except Exception as exc:
-        logger.error("Extraction error: %s", exc, exc_info=True)
+        logger.exception("Financial extraction failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Financial extraction failed: {exc}",
