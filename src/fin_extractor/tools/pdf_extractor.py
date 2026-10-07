@@ -7,6 +7,7 @@ import pymupdf
 from agent_framework import tool
 
 from fin_extractor.config import get_settings
+from fin_extractor.security import scan_document_pages_for_injection
 from fin_extractor.utils import get_tracer, setup_logger
 
 logger = setup_logger("pdf_extractor")
@@ -54,12 +55,18 @@ def read_pdf_text(file_path: str, pages: list[int] | None = None) -> str:
             "---",
         ]
 
+        pages_dict: dict[int, str] = {}
         for page_num in target_pages:
             page = doc[page_num - 1]
             page_text = page.get_text("text").strip()
+            pages_dict[page_num] = page_text
             output_parts.append(f"--- PAGE {page_num} ---\n{page_text}")
 
         doc.close()
+
+        # Guardrail: Scan extracted pages for indirect prompt injection before model consumption
+        scan_document_pages_for_injection(pages_dict, settings=cfg)
+
         result = "\n\n".join(output_parts)
         span.set_attribute("output.character_count", len(result))
         if cfg.capture_message_content:

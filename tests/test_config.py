@@ -56,3 +56,23 @@ def test_config_initialization_with_kwargs():
     assert settings.log_level == "WARNING"
     assert settings.applicationinsights_connection_string == "InstrumentationKey=custom-key;"
     assert settings.is_tracing_configured is True
+
+
+def test_config_prompt_shield_settings(monkeypatch: pytest.MonkeyPatch):
+    """Verifies that Prompt Shield settings and endpoint auto-derivation work as expected."""
+    monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", "https://fin-hub.services.ai.azure.com/api/projects/proj-1")
+    monkeypatch.setenv("ENABLE_PROMPT_SHIELD", "true")
+
+    settings = AppSettings()
+    assert settings.enable_prompt_shield is True
+    assert settings.resolved_content_safety_endpoint == "https://fin-hub.services.ai.azure.com"
+    assert settings.is_prompt_shield_configured is True
+    assert settings.content_safety_api_version == "2024-09-01"
+
+    # When explicit CONTENT_SAFETY_ENDPOINT and API version are set
+    monkeypatch.setenv("CONTENT_SAFETY_ENDPOINT", "https://custom-safety.cognitiveservices.azure.com")
+    monkeypatch.setenv("CONTENT_SAFETY_API_VERSION", "2024-09-15-preview")
+    settings2 = AppSettings()
+    assert settings2.resolved_content_safety_endpoint == "https://custom-safety.cognitiveservices.azure.com"
+    assert settings2.is_prompt_shield_configured is True
+    assert settings2.content_safety_api_version == "2024-09-15-preview"
