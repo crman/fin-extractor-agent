@@ -17,6 +17,7 @@ This document provides a comprehensive, end-to-end technical overview of the **F
   - [4.5. Data Contract Layer](#45-data-contract-layer-srcfin_extractormodelsschemaspy)
   - [4.6. Configuration Layer](#46-configuration-layer-srcfin_extractorconfigpy)
   - [4.7. Security & Guardrails Layer](#47-security--guardrails-layer-srcfin_extractorsecurity)
+  - [4.8. Agent Skills Layer](#48-agent-skills-layer-srcfin_extractorskills)
 - [5. Azure AI Foundry Setup & MAF Implementation Guide](#5-azure-ai-foundry-setup--maf-implementation-guide)
   - [5.1. Provisioning Azure AI Foundry Cloud Resources](#51-provisioning-azure-ai-foundry-cloud-resources)
   - [5.2. Passwordless Authentication via DefaultAzureCredential](#52-passwordless-authentication-via-defaultazurecredential)
@@ -32,9 +33,17 @@ This document provides a comprehensive, end-to-end technical overview of the **F
   - [7.3. Tier 1: Code-Level Screening](#73-tier-1-code-level-screening-prompt_shieldpy)
   - [7.4. Tier 2: Agent Framework (MAF) Fail-Closed Enforcement](#74-tier-2-agent-framework-maf-fail-closed-enforcement)
   - [7.5. Tier 3: Portal-Level Policy (Foundry Guardrails + Controls)](#75-tier-3-portal-level-policy-foundry-guardrails--controls)
-- [8. Security & Authentication Architecture](#8-security--authentication-architecture)
-- [9. Testing Strategy](#9-testing-strategy)
-- [10. Technology Stack Summary](#10-technology-stack-summary)
+- [8. Agent Skills Architecture (Progressive-Disclosure Skills)](#8-agent-skills-architecture-progressive-disclosure-skills)
+  - [8.1. Progressive Disclosure Pattern](#81-progressive-disclosure-pattern)
+  - [8.2. Skill Definitions: Financial Auditor & Currency Normalizer](#82-skill-definitions-financial-auditor--currency-normalizer)
+  - [8.3. Single Source of Truth (SSOT) Resources](#83-single-source-of-truth-ssot-resources)
+  - [8.4. Deterministic Execution Runner & Process Isolation](#84-deterministic-execution-runner--process-isolation)
+  - [8.5. Execution Sequence Guarantees (Extraction Before Skills)](#85-execution-sequence-guarantees-extraction-before-skills)
+  - [8.6. Sequence Diagram: Progressive Skill Disclosure](#86-sequence-diagram-progressive-skill-disclosure)
+  - [8.7. Observability & Tracing in Azure AI Foundry Dashboard](#87-observability--tracing-in-azure-ai-foundry-dashboard)
+- [9. Security & Authentication Architecture](#9-security--authentication-architecture)
+- [10. Testing Strategy](#10-testing-strategy)
+- [11. Technology Stack Summary](#11-technology-stack-summary)
 
 ---
 
@@ -64,12 +73,14 @@ graph TD
     subgraph AgentSystem ["Agent Core & Integrations"]
         direction LR
         Tool["PDF Extraction Tool<br><i>PyMuPDF / fitz</i>"]
+        Skills["MAF Agent Skills<br><i>financial-auditor & currency-normalizer</i>"]
         Agent <-->|1. Tool Calling| Tool
-        Agent <-->|2. Reasoning Chat| Foundry["Azure AI Foundry (gpt-4o)<br><i>DefaultAzureCredential</i>"]
+        Agent <-->|2. Progressive Skills| Skills
+        Agent <-->|3. Reasoning Chat| Foundry["Azure AI Foundry (gpt-4o)<br><i>DefaultAzureCredential</i>"]
     end
 
     Agent -->|Validate Schema| Schema["Pydantic Model<br><code>FinancialReport</code>"]
-    Schema -->|HTTP 200 OK| Output["Structured Financial JSON<br><i>(Revenue, Net Income, EPS, Assets, Liabilities)</i>"]
+    Schema -->|HTTP 200 OK| Output["Structured Financial JSON<br><i>(Revenue, Net Income, EPS, Assets, Liabilities, Audit Verdict)</i>"]
 
     classDef default fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#0f172a;
     classDef accent fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#1e3a8a;
@@ -79,7 +90,7 @@ graph TD
 
     class Client,API accent;
     class Agent agent;
-    class Tool default;
+    class Tool,Skills default;
     class Foundry cloud;
     class Schema,Output result;
 ```
@@ -168,6 +179,9 @@ class FinancialReport(BaseModel):
     total_liabilities: float | None = None
     cash_and_equivalents: float | None = None
     summary: str | None = None
+    audit_status: str | None = None
+    audit_checks: list[str] = []
+    normalized_currency: str | None = None
 ```
 Every field is decorated with semantic descriptions that act as secondary prompting cues to the LLM during structured output generation.
 
@@ -180,12 +194,22 @@ Every field is decorated with semantic descriptions that act as secondary prompt
   - `ENABLE_PROMPT_SHIELD`: Toggle input safety screening (`true`/`false`).
   - `CONTENT_SAFETY_ENDPOINT`: Azure AI Content Safety / Cognitive Services endpoint.
   - `CONTENT_SAFETY_API_VERSION`: API version for `shieldPrompt` (default: `2024-09-01`).
-* Properties `is_foundry_configured` and `is_prompt_shield_configured` provide lightweight readiness checks.
+  - `ENABLE_SKILLS`: Toggle Microsoft Agent Framework skills (`true`/`false`, default: `true`).
+  - `SKILLS_DIR`: Path override for the skills root directory (defaults to `src/fin_extractor/skills`).
+* Properties `is_foundry_configured`, `is_prompt_shield_configured`, and `resolved_skills_dir` provide lightweight readiness and path resolution.
 
 ### 4.7. Security & Guardrails Layer (`src/fin_extractor/security/`)
 * **Prompt Shield Engine (`prompt_shield.py`):** Screens document pages against indirect prompt injection via the Azure AI Content Safety `shieldPrompt` API.
 * **MAF Fail-Closed Integration:** Exceptions `PromptShieldError` and `DocumentInjectionError` inherit from MAF's `agent_framework.MiddlewareFailure`, triggering an immediate, non-recoverable loop abort when an injection attack is detected.
 * **OpenTelemetry GenAI Tracing:** Generates `guardrail_prompt_shield` spans adhering to CNCF OpenTelemetry GenAI semantic conventions (`gen_ai.system`, `gen_ai.operation.name`, `error.type`, and `span.record_exception`).
+
+### 4.8. Agent Skills Layer (`src/fin_extractor/skills/`)
+* Built on the open **Agent Skills specification** implemented natively in Microsoft Agent Framework (`SkillsProvider`).
+* Provides modular, progressive-disclosure capabilities to the agent without polluting system prompt token context.
+* Encapsulates:
+  - `financial-auditor`: Validates balance sheet parity, profit margins, and liquidity ratios.
+  - `currency-normalizer`: Translates non-USD currencies into benchmark USD.
+  - `runner.py`: Provides deterministic script execution (`execute_skill_script`) to perform Python calculations without LLM floating-point errors.
 
 ---
 
@@ -505,7 +529,106 @@ As an infrastructure safety net at the model gateway:
 
 ---
 
-## 8. Security & Authentication Architecture
+## 8. Agent Skills Architecture (Progressive-Disclosure Skills)
+
+### 8.1. Progressive Disclosure Pattern
+Standard LLM agent designs suffer from prompt bloat when domain-specific logic, validation guidelines, and mathematical equations are forced into the system instructions. Microsoft Agent Framework solves this via the open [Agent Skills specification](https://agentskills.io/) and the **Progressive Disclosure Pattern**:
+
+1. **Advertise (Lightweight Prompt Context):** Only skill metadata (`name` and `description`) is injected into the agent system instructions (`~100` tokens per skill).
+2. **Load on Demand (`load_skill`):** When the model inspects the extracted text and determines specialized domain guidance is needed, it dynamically calls `load_skill` to retrieve the full `SKILL.md` body.
+3. **Read Domain Resources (`read_skill_resource`):** If the skill references lookup tables, rule configurations, or schemas, the agent loads them lazily (e.g. `audit_rules.json`, `exchange_rates.json`).
+4. **Execute Verification Scripts (`run_skill_script`):** The agent delegates exact numerical calculations and parity audits to deterministic Python scripts via `execute_skill_script`, eliminating floating-point hallucinations.
+
+### 8.2. Skill Definitions: Financial Auditor & Currency Normalizer
+
+```
+src/fin_extractor/skills/
+├── financial-auditor/
+│   ├── SKILL.md                          # Audit instructions & workflow rules
+│   ├── resources/audit_rules.json        # Balance sheet parity & margin formulas
+│   └── scripts/audit_calc.py             # Deterministic parity and margin calculator
+└── currency-normalizer/
+    ├── SKILL.md                          # Multi-currency translation rules
+    ├── resources/exchange_rates.json     # Benchmark exchange rates against USD
+    └── scripts/convert_currency.py       # Deterministic FX rate conversion script
+```
+
+#### Skill 1: `financial-auditor`
+* **Trigger:** Always called during financial metric extraction for balance sheet and income statement verification.
+* **Audit Checks:**
+  - **Balance Sheet Equation:** Verifies $\text{Assets} = \text{Liabilities} + \text{Equity}$ within a 1% allowable rounding tolerance.
+  - **Net Profit Margin:** Calculates $\frac{\text{Net Income}}{\text{Total Revenue}} \times 100$, verifying sanity within normal $[-100\%, +100\%]$ operating boundaries.
+  - **Cash Liquidity Ratio:** Calculates $\frac{\text{Cash}}{\text{Total Assets}} \times 100$, confirming liquid cash does not exceed total assets.
+  - **Unit Scale Alignment:** Confirms revenue, net income, and assets share the same multiplier (thousands vs. millions).
+
+#### Skill 2: `currency-normalizer`
+* **Trigger:** Only called when the financial report is denominated in non-USD currencies (e.g. EUR, GBP, JPY, CAD).
+* **Normalization Logic:**
+  - Preserves reported original currency in `currency`.
+  - Normalizes metrics into benchmark USD in `normalized_currency`.
+  - Records conversion factors in `audit_checks` and `summary`.
+
+### 8.3. Single Source of Truth (SSOT) Resources
+
+To prevent drift between skill documentation and execution, static JSON files in `resources/` serve as the **Single Source of Truth**:
+* **`resources/audit_rules.json`:** Defines the accounting formulas and allowable tolerances ($1.0\%$). The script [`audit_calc.py`](src/fin_extractor/skills/financial-auditor/scripts/audit_calc.py) dynamically reads this file at runtime rather than hardcoding values.
+* **`resources/exchange_rates.json`:** Defines the benchmark exchange rates. The script [`convert_currency.py`](src/fin_extractor/skills/currency-normalizer/scripts/convert_currency.py) dynamically loads rates from this file, ensuring that updating the JSON (or syncing it via an external API) immediately updates the currency calculations without altering Python code.
+
+### 8.4. Deterministic Execution Runner & Process Isolation
+
+File scripts are executed by [`src/fin_extractor/skills/runner.py`](src/fin_extractor/skills/runner.py) using `execute_skill_script`. This function implements MAF's `SkillScriptRunner` protocol for three critical architectural reasons:
+1. **Framework Contract:** MAF deliberately refuses to execute arbitrary code in-process for security; it requires the host application to explicitly supply an execution runner.
+2. **Process Isolation:** The runner launches Python scripts in an isolated child process via `subprocess.run()`. If a script encounters an unexpected crash or infinite loop, only the child process terminates—the main FastAPI server and agent session remain completely unaffected.
+3. **Sandboxing Flexibility:** The runner design decouples execution from the script itself. In production environments, `execute_skill_script` can be swapped to execute inside an **Azure Dynamic Sessions** container sandbox or Docker sandbox without changing the skill files.
+4. **Flexible CLI Argument Protocol:** Scripts accept structured JSON, named CLI flags (e.g. `--total_assets 50000`), or positional arguments (e.g. `[assets, liabilities, equity, revenue, net_income, cash]`), ensuring resilience against diverse model tool-calling formats while writing parsed JSON back to `sys.stdout`. Non-zero child exit codes are safely captured without crashing the parent process.
+
+### 8.5. Execution Sequence Guarantees (Extraction Before Skills)
+
+The pipeline guarantees that skills are executed only *after* text extraction through three reinforcing mechanisms:
+1. **Data Prerequisite:** Calculation scripts have strict schemas requiring numerical arguments (e.g. `total_assets`, `total_revenue`). At the start of a request, the LLM has zero numbers in its context; it must call `extract_pdf_text` first to acquire the data needed to invoke the skill.
+2. **Numbered System Workflow:** Prompts explicitly sequence `1. Document Ingestion` $\rightarrow$ `2. Metric Extraction` $\rightarrow$ `3. Quality & Verification Skills` $\rightarrow$ `4. Output Generation`.
+3. **Activation Preconditions in `SKILL.md`:** Skill directives explicitly specify that they operate on already-extracted values (e.g., `currency-normalizer` states: *"If the report is already denominated in USD, DO NOT call or load this skill"*).
+
+### 8.6. Sequence Diagram: Progressive Skill Disclosure
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Client
+    participant Agent as MAF Agent
+    participant Tool as PDF Tool (PyMuPDF)
+    participant Provider as SkillsProvider
+    participant Script as Script Runner (audit_calc.py)
+    participant Foundry as Azure AI Foundry (gpt-4o)
+
+    Client->>Agent: Extract metrics from PDF
+    Note over Agent: System prompt includes <available_skills> catalog
+    Agent->>Tool: extract_pdf_text(path)
+    Tool-->>Agent: Raw financial document text
+    Agent->>Foundry: Reasoning on text & skill catalog
+    Foundry-->>Agent: Request load_skill('financial-auditor')
+    Agent->>Provider: load_skill('financial-auditor')
+    Provider-->>Agent: Return full SKILL.md instructions
+    Foundry-->>Agent: Request read_skill_resource('audit_rules.json')
+    Agent->>Provider: read_skill_resource('resources/audit_rules.json')
+    Provider-->>Agent: Return rule schemas and tolerances
+    Foundry-->>Agent: Request run_skill_script('audit_calc.py', {metrics})
+    Agent->>Script: Execute audit_calc.py with parsed numbers
+    Script-->>Agent: Structured verdict: {verdict: PASSED, net_margin: 24.0%}
+    Agent->>Foundry: Deliver audit results
+    Foundry-->>Agent: Final FinancialReport with audit_status & audit_checks
+```
+
+### 8.7. Observability & Tracing in Azure AI Foundry Dashboard
+
+While skill definition files reside in the local codebase, their complete runtime execution is fully observable in Azure AI Foundry Tracing:
+1. **Catalog Inspection:** The `<available_skills>` XML block is visible in the trace's initial system prompt.
+2. **Tool Waterfall Spans:** MAF emits individual OpenTelemetry tool call spans for `load_skill`, `read_skill_resource`, and `run_skill_script`.
+3. **Span Attributes:** The root span records `gen_ai.agent.skills_enabled`, `financial_report.audit_status`, and `financial_report.normalized_currency`.
+
+---
+
+## 9. Security & Authentication Architecture
 
 1. **Passwordless Cloud Authentication:**
    - No Azure API keys or client secrets are stored in source code or `.env`.
@@ -518,7 +641,7 @@ As an infrastructure safety net at the model gateway:
 
 ---
 
-## 9. Testing Strategy
+## 10. Testing Strategy
 
 The repository maintains an automated unit test suite with 100% decoupling from live Azure resources using mock abstractions:
 
@@ -526,21 +649,23 @@ The repository maintains an automated unit test suite with 100% decoupling from 
 |---|---|---|
 | `test_api.py` | FastAPI route handling, status codes, upload validation, 422 injection error | `fastapi.testclient.TestClient`, `unittest.mock.patch` |
 | `test_agent.py` | MAF Agent creation, client configuration, extraction pipeline | Async mocks, mocked chat client responses |
+| `test_skills.py` | MAF Skills discovery, frontmatter spec compliance, resource reading, deterministic script execution, agent context providers | Async tests, mocked skills provider, subprocess execution verification |
 | `test_pdf_extractor.py` | PyMuPDF tool execution, page indexing, error conditions | Temporary synthetic PDF generation |
 | `test_prompt_shield.py` | Prompt Shield document scan, injection detection, disabled bypass | Mock Content Safety client responses |
-| `test_models.py` | Pydantic schema constraints, JSON serialization, null safety | Pydantic model validation tests |
-| `test_config.py` | Environment variable overrides, Prompt Shield settings, defaults | `pytest.MonkeyPatch` |
+| `test_models.py` | Pydantic schema constraints, JSON serialization, audit fields, null safety | Pydantic model validation tests |
+| `test_config.py` | Environment variable overrides, Prompt Shield settings, skills settings, defaults | `pytest.MonkeyPatch` |
 | `test_telemetry.py` | OpenTelemetry setup, connection string discovery, fallback safety | `unittest.mock.patch`, mock instrumentors |
 | `conftest.py` | Session fixtures, live telemetry isolation from Azure Monitor | `unittest.mock.patch` session fixtures |
 
 ---
 
-## 10. Technology Stack Summary
+## 11. Technology Stack Summary
 
 | Layer | Technology | Purpose |
 |---|---|---|
 | **Language** | Python 3.11+ | Modern type annotations, performance improvements |
 | **Agent Framework** | Microsoft Agent Framework (`agent-framework`) | Agent lifecycle, tool registration, orchestration |
+| **Agent Skills** | MAF `SkillsProvider` (`agentskills.io` spec) | Progressive disclosure of domain auditor & currency skills |
 | **Foundry SDK** | `agent-framework-foundry` | Native integration with Azure AI Foundry |
 | **Cloud Model** | Azure AI Foundry (`gpt-4o`) | High-reasoning multimodal financial comprehension |
 | **Input Guardrails** | Azure AI Content Safety (`azure-ai-contentsafety`) | Prompt Shields against indirect document injection |
@@ -549,5 +674,6 @@ The repository maintains an automated unit test suite with 100% decoupling from 
 | **Validation** | Pydantic v2 | Schema definition and structured output enforcement |
 | **Observability** | OpenTelemetry + Azure Monitor | Distributed tracing and Foundry Tracing integration |
 | **Identity** | Azure Identity (`azure-identity`) | Entra ID / Azure CLI passwordless token provider |
-| **Testing** | Pytest, Pytest-Asyncio | Automated asynchronous test runner (31 tests) |
+| **Testing** | Pytest, Pytest-Asyncio | Automated asynchronous test runner (44 tests) |
+
 

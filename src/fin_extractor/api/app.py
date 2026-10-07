@@ -14,10 +14,8 @@ from fin_extractor.security import DocumentInjectionError, PromptShieldError
 from fin_extractor.utils import configure_tracing, is_tracing_active, setup_logger
 
 logger = setup_logger("api")
-
-# Initialize OpenTelemetry and Azure AI Foundry tracing
-configure_tracing()
-
+setup_logger("skills_runner")
+setup_logger("agent_framework")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

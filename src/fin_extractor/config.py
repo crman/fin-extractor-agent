@@ -1,5 +1,6 @@
 """Application configuration settings for Azure AI Foundry."""
 
+from pathlib import Path
 from urllib.parse import urlparse
 
 from pydantic import Field
@@ -62,6 +63,18 @@ class AppSettings(BaseSettings):
         description="Azure AI Content Safety REST API version for Prompt Shields.",
     )
 
+    # --- Agent Skills Configuration ---
+    enable_skills: bool = Field(
+        True,
+        alias="ENABLE_SKILLS",
+        description="Enable Microsoft Agent Framework progressive-disclosure skills.",
+    )
+    skills_dir: Path | None = Field(
+        None,
+        alias="SKILLS_DIR",
+        description="Custom path to skills directory. If omitted, defaults to src/fin_extractor/skills.",
+    )
+
     # --- General Application Settings ---
     log_level: str = Field(
         "INFO",
@@ -94,6 +107,13 @@ class AppSettings(BaseSettings):
     def is_prompt_shield_configured(self) -> bool:
         """Returns True if Prompt Shield is enabled and an endpoint is available."""
         return self.enable_prompt_shield and bool(self.resolved_content_safety_endpoint)
+
+    @property
+    def resolved_skills_dir(self) -> Path:
+        """Resolves the skills directory, defaulting to src/fin_extractor/skills."""
+        if self.skills_dir is not None:
+            return self.skills_dir.resolve()
+        return Path(__file__).resolve().parent / "skills"
 
 
 def get_settings() -> AppSettings:

@@ -14,6 +14,7 @@ from azure.identity import DefaultAzureCredential
 from fin_extractor.config import AppSettings, get_settings
 from fin_extractor.models import FinancialReport
 from fin_extractor.prompts import FINANCIAL_EXTRACTOR_SYSTEM_INSTRUCTIONS
+from fin_extractor.skills import create_skills_provider
 from fin_extractor.tools import extract_pdf_tool
 from fin_extractor.utils import get_tracer, setup_logger
 
@@ -61,18 +62,29 @@ def create_financial_agent(
         instructions: Optional custom system instructions.
 
     Returns:
-        Configured Agent instance with tool binding and structured response format.
+        Configured Agent instance with tool binding, skills, and structured response format.
     """
-    chat_client = client if client is not None else get_chat_client(settings=settings)
+    cfg = settings or get_settings()
+    chat_client = client if client is not None else get_chat_client(settings=cfg)
     system_instructions = instructions or FINANCIAL_EXTRACTOR_SYSTEM_INSTRUCTIONS
 
-    logger.info("Initializing FinancialExtractorAgent with extract_pdf_text tool.")
+    context_providers = []
+    if cfg.enable_skills:
+        logger.info("Initializing Agent Skills provider from %s", cfg.resolved_skills_dir)
+        skills_provider = create_skills_provider(cfg.resolved_skills_dir)
+        context_providers.append(skills_provider)
+
+    logger.info(
+        "Initializing FinancialExtractorAgent with extract_pdf_text tool and %d context providers.",
+        len(context_providers),
+    )
     return Agent(
         client=chat_client,
         name="FinancialExtractorAgent",
         description="Autonomous agent that extracts structured financial metrics from documents.",
         instructions=system_instructions,
         tools=[extract_pdf_tool],
+        context_providers=context_providers if context_providers else None,
         default_options={
             "response_format": FinancialReport,
             "temperature": 0.0,
@@ -113,8 +125,12 @@ async def extract_financial_data(
         span.set_attribute("document.size_bytes", resolved_path.stat().st_size)
 
         cfg = get_settings()
+        span.set_attribute("gen_ai.agent.skills_enabled", cfg.enable_skills)
         active_agent = agent if agent is not None else create_financial_agent(settings=cfg)
-        internal_prompt = f"Extract the predefined financial metrics from the document at: {resolved_path}"
+        internal_prompt = (
+            f"Extract the predefined financial metrics from the document at: {resolved_path}. "
+            "Load the 'financial-auditor' skill to audit balance sheet parity and margins, populating audit_status and audit_checks."
+        )
         if cfg.capture_message_content:
             span.set_attribute("input.value", internal_prompt)
 
@@ -139,6 +155,17 @@ async def extract_financial_data(
             span.set_attribute("financial_report.company_name", report.company_name)
             span.set_attribute("financial_report.reporting_period", report.reporting_period)
             span.set_attribute("financial_report.currency", report.currency)
+            if report.audit_status:
+                span.set_attribute("financial_report.audit_status", report.audit_status)
+            if report.normalized_currency:
+                span.set_attribute("financial_report.normalized_currency", report.normalized_currency)
+            logger.info(
+                "Financial extraction completed for %s [Audit: %s, Checks: %d, Currency: %s]",
+                resolved_path.name,
+                report.audit_status,
+                len(report.audit_checks),
+                report.normalized_currency or report.currency,
+            )
             return report
 
         raise ValueError(f"Agent did not return valid structured output for {resolved_path.name}")
