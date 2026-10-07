@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "Financial Audit Validation Rules",
+  "version": "1.0.0",
+  "standards": ["US-GAAP", "IFRS"],
+  "rules": {
+    "balance_sheet_equation": {
+      "formula": "Total Assets == Total Liabilities + Stockholders Equity",
+      "tolerance_pct": 1.0,
+      "severity": "ERROR",
+      "description": "Fundamental accounting identity: Total Assets must equal Total Liabilities plus Stockholders Equity within allowable rounding margin."
+    },
+    "net_profit_margin": {
+      "formula": "Net Income / Total Revenue * 100",
+      "min_allowed_pct": -100.0,
+      "max_allowed_pct": 100.0,
+      "warning_threshold_pct": 80.0,
+      "severity": "WARNING",
+      "description": "Net profit margin sanity check: flags extreme margins or unexpected loss ratios."
+    },
+    "cash_liquidity_ratio": {
+      "formula": "Cash and Cash Equivalents / Total Assets * 100",
+      "max_allowed_pct": 100.0,
+      "severity": "ERROR",
+      "description": "Cash and cash equivalents cannot exceed total assets."
+    },
+    "unit_scale_consistency": {
+      "description": "Validates that balance sheet items and income statement metrics share identical scaling (e.g. In Thousands vs In Millions)."
+    }
+  }
+}

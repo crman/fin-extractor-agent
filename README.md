@@ -52,8 +52,10 @@ fin-extractor-agent/
 │       ├── config.py         # AppSettings for Azure AI Foundry & App Insights
 │       ├── agents/           # Microsoft Agent Framework agent definitions
 │       ├── api/              # FastAPI application and REST endpoints
-│       ├── models/           # Pydantic structured output models & schemas │       ├── prompts/          # Domain-tailored system prompts and instructions
+│       ├── models/           # Pydantic structured output models & schemas
+│       ├── prompts/          # Domain-tailored system prompts and instructions
 │       ├── security/         # Input safety guardrails & Prompt Shield screening
+│       ├── skills/           # MAF Agent Skills (financial-auditor, currency-normalizer)
 │       ├── tools/            # PDF parsing & extraction tools (PyMuPDF)
 │       └── utils/            # Logging, OpenTelemetry tracing, and utilities
 └── tests/
@@ -65,6 +67,7 @@ fin-extractor-agent/
     ├── test_models.py        # Pydantic schema validation tests
     ├── test_pdf_extractor.py # PDF parsing tool unit tests
     ├── test_prompt_shield.py # Prompt Shield guardrail unit tests
+    ├── test_skills.py        # Agent skills discovery & execution unit tests
     └── test_telemetry.py     # OpenTelemetry and tracing unit tests
 ```
 
@@ -102,6 +105,10 @@ CAPTURE_MESSAGE_CONTENT=true
 # Guardrails & Content Safety (Prompt Shields):
 ENABLE_PROMPT_SHIELD=true
 # CONTENT_SAFETY_ENDPOINT=https://<your-hub-resource>.cognitiveservices.azure.com
+
+# Agent Skills (Progressive Disclosure):
+ENABLE_SKILLS=true
+# SKILLS_DIR=src/fin_extractor/skills
 
 # Optional override: Auto-discovered from FOUNDRY_PROJECT_ENDPOINT if omitted
 # APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=...;IngestionEndpoint=...
@@ -209,9 +216,26 @@ To defend against **indirect prompt injection** attacks embedded inside uploaded
 
 ---
 
+## Agent Skills (Progressive-Disclosure Skills)
+
+The service incorporates the open **Agent Skills specification** via Microsoft Agent Framework (`SkillsProvider`). Rather than burdening the system prompt with exhaustive GAAP/IFRS instructions and arithmetic, skills follow progressive disclosure:
+
+1. **`financial-auditor`**: Automatically invoked to audit extracted balance sheet figures for equation parity ($\text{Assets} = \text{Liabilities} + \text{Equity}$), calculate net profit margins, verify cash liquidity ratios, and detect unit scaling inconsistencies.
+2. **`currency-normalizer`**: Selectively invoked when a document is denominated in non-USD currencies (e.g. EUR, GBP, JPY, CAD) to normalize values to benchmark USD.
+3. **Deterministic Script Execution**: Mathematical calculations and parity checks are executed by local Python scripts via `run_skill_script`, guaranteeing zero floating-point hallucination.
+
+### Skills Configuration Options
+
+| Variable | Default | Description |
+|---|---|---|
+| `ENABLE_SKILLS` | `true` | Toggle Microsoft Agent Framework skills integration |
+| `SKILLS_DIR` | `src/fin_extractor/skills` | Directory containing file-based skills |
+
+---
+
 ## Running Unit Tests
 
-Run the test suite using `pytest`:
+Run the complete test suite (44 tests) using `pytest`:
 
 ```bash
 pytest

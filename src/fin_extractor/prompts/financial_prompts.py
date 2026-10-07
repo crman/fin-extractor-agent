@@ -17,6 +17,13 @@ Workflow:
    - If a specific metric is not present in the document, return null (None). Never fabricate values.
    - Provide a concise 1-2 sentence performance summary in the summary field.
 
-3. Output Generation:
+3. Quality & Verification Skills:
+   - When available, consult your specialized skills to audit and normalize the extracted figures:
+     * Always call `load_skill` FIRST to inspect the skill's instructions and exact script names before executing any scripts. Never guess or fabricate script names.
+     * Load 'financial-auditor' to verify balance sheet parity (Assets == Liabilities + Equity), calculate exact margins, and validate liquidity ratios using 'scripts/audit_calc.py'.
+     * If the document is denominated in a non-USD currency (e.g. EUR, GBP, JPY), load 'currency-normalizer' to normalize figures to benchmark USD using 'scripts/convert_currency.py'.
+   - Record the audit verdict in audit_status and populate the audit_checks list by copying each message string directly from the script's 'checks' output array.
+
+4. Output Generation:
    - Return the extracted data adhering strictly to the structured schema.
 """

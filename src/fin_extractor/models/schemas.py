@@ -57,3 +57,17 @@ class FinancialReport(BaseModel):
         None,
         description="Brief narrative summary of company performance highlights.",
     )
+
+    # Agent Skills Audit & Normalization Metadata
+    audit_status: str | None = Field(
+        None,
+        description="Audit verdict from the financial-auditor skill (e.g. 'PASSED', 'WARNING_EQUATION_MISMATCH').",
+    )
+    audit_checks: list[str] = Field(
+        default_factory=list,
+        description="List of specific accounting and ratio validation checks executed by skills (e.g. balance sheet equation parity, profit margin percentage, and cash liquidity ratio).",
+    )
+    normalized_currency: str | None = Field(
+        None,
+        description="Normalized currency code (e.g. 'USD'). For USD-denominated reports, set to 'USD'.",
+    )
